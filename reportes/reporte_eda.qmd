@@ -1,0 +1,130 @@
+---
+title: "TP1 Transversal - EDA de Laptops en Amazon"
+author: "Alvaro Costa Millet y Mauricio Jurado"
+format: 
+  html:
+    toc: true
+    theme: cosmo
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## d. Importación y Descripción del Dataset
+
+Cargamos las librerías necesarias e importamos el dataset procesado en Bash.
+
+```{r setup}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(knitr)
+
+# Leemos el archivo y forzamos a que todas las columnas sean 100% numéricas
+dataset <- read_csv("dataset.csv") %>%
+  mutate(across(everything(), as.numeric))
+
+glimpse(dataset)
+```
+
+## 1. Identificación de Variables Estadísticas
+
+Tras el procesamiento de limpieza en la terminal, el dataset quedó estructurado así:
+
+*   **Variables Cuantitativas (Numéricas):** `screen_size`, `harddisk`, `ram`, `cpu_speed`, `rating` y `price`. Todas representan cantidades numéricas (continuas o discretas).
+*   **Variable Cualitativa (Categórica nominal):** `graphics`. Originalmente contenía texto, pero fue transformada en Bash a una codificación numérica (0 = Integrada, 1 = Dedicada).
+
+---
+
+## 2. Medidas de Posición por variable
+
+Calculamos las medidas de tendencia central y de posición no central para todas las variables.
+
+```{r medidas-tendencia}
+# Función auxiliar para calcular la Moda
+calcular_moda <- function(x) {
+  x <- na.omit(x)
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# 1. Media, Mediana y Moda (Tendencia Central)
+medidas_centrales <- sapply(dataset, function(x) {
+  c(Media = mean(x, na.rm=TRUE), 
+    Mediana = median(x, na.rm=TRUE),
+    Moda = calcular_moda(x))
+})
+kable(t(medidas_centrales), digits = 2, caption = "Tendencia Central: Media, Mediana y Moda")
+
+# 2. Cuartiles (25%, 50%, 75%)
+cuartiles <- sapply(dataset, function(x) quantile(x, probs = c(0.25, 0.50, 0.75), na.rm=TRUE))
+kable(t(cuartiles), digits = 2, caption = "Cuartiles")
+
+# 3. Deciles (10% al 90%)
+deciles <- sapply(dataset, function(x) quantile(x, probs = seq(0.1, 0.9, by=0.1), na.rm=TRUE))
+kable(t(deciles), digits = 2, caption = "Deciles")
+
+# 4. Percentiles destacados (1%, 5%, 95%, 99%)
+percentiles <- sapply(dataset, function(x) quantile(x, probs = c(0.01, 0.05, 0.95, 0.99), na.rm=TRUE))
+kable(t(percentiles), digits = 2, caption = "Percentiles Destacados")
+```
+
+---
+
+## 3. Histogramas y Diagramas de Caja
+
+```{r graficos-masivos, fig.width=10, fig.height=6}
+# Pasar a formato largo para graficar todo junto
+dataset_long <- dataset %>% 
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Valor")
+
+# Histogramas
+ggplot(dataset_long, aes(x = Valor)) +
+  geom_histogram(bins = 15, fill = "steelblue", color = "black") +
+  facet_wrap(~Variable, scales = "free") +
+  labs(title = "Histogramas por Variable", x = "Valor", y = "Frecuencia") +
+  theme_minimal()
+
+# Diagramas de Caja
+ggplot(dataset_long, aes(y = Valor)) +
+  geom_boxplot(fill = "lightgreen", color = "black") +
+  facet_wrap(~Variable, scales = "free") +
+  labs(title = "Boxplots por Variable", y = "Valor") +
+  theme_minimal()
+```
+
+---
+
+## 4. y 5. Interpretación y Frecuencias (Variable: price)
+
+Tomamos la variable **price** para el análisis a profundidad.
+
+```{r frecuencias-price}
+# Calculamos el número exacto de intervalos con la fórmula de Sturges
+num_intervalos <- nclass.Sturges(na.omit(dataset$price))
+
+# Cortamos los datos en esa cantidad de intervalos
+intervalos <- cut(dataset$price, breaks = num_intervalos, right = FALSE)
+
+tabla_frecuencias <- dataset %>%
+  mutate(Clase = intervalos) %>%
+  filter(!is.na(Clase)) %>%
+  group_by(Clase) %>%
+  summarise(Frecuencia_Absoluta = n()) %>%
+  mutate(
+    Frecuencia_Relativa = Frecuencia_Absoluta / sum(Frecuencia_Absoluta),
+    Frecuencia_Porcentual = Frecuencia_Relativa * 100,
+    Frecuencia_Acumulada = cumsum(Frecuencia_Absoluta)
+  )
+
+kable(tabla_frecuencias, digits = 2, caption = "Tabla de Frecuencias Agrupadas - Precio (USD)")
+```
+
+### Interpretación del Histograma de Precios
+
+*   **Distribución en intervalos de clase:** Se agruparon los datos continuos del precio estableciendo límites inferiores y superiores dictados por la regla de Sturges.
+*   **Amplitud y marca de clase:** La amplitud es constante entre intervalos. La marca de clase (punto medio) representa a todos los datos de esa barra.
+*   **Construcción del gráfico:** Las barras adyacentes muestran en su área la frecuencia absoluta (cantidad de laptops) por rango de precio.
+*   **Análisis visual:** Análisis visual: Al observar el histograma de la variable price, se evidencia que la distribución de los datos no es simétrica. Presenta una clara asimetría positiva (sesgo hacia la derecha). Esto significa que la mayor concentración de datos está en los valores más bajos: la inmensa mayoría de las laptops cuestan entre 0 y 2.000 USD aproximadamente (donde se ubican las barras más altas). Hacia la derecha, la altura de las barras disminuye drásticamente, formando una "cola" que se extiende hacia valores muy altos (cerca de los 8.000 USD y más). Esta forma en la distribución nos indica la presencia de datos atípicos, correspondiendo a un grupo muy reducido de laptops con precios extremadamente caros en comparación con el resto del catálogo.
